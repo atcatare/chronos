@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { COLORS } from '../constants/colors';
@@ -8,6 +8,7 @@ import { useLlmInference } from 'react-native-llm-mediapipe';
 import * as FileSystem from 'expo-file-system';
 
 const MODEL_FILE_NAME = 'model.bin';
+const MODEL_URL = 'https://huggingface.co/t-ghosh/gemma-tflite/resolve/main/gemma-1.1-2b-it-int4.bin';
 
 const prepareContextForAI = (entries) => {
     // Sort entries by date descending
@@ -28,6 +29,8 @@ export default function InsightsScreen() {
     const [insight, setInsight] = useState('');
     const [loading, setLoading] = useState(false);
     const [modelPath, setModelPath] = useState('');
+    const [downloadProgress, setDownloadProgress] = useState(0);
+    const [isDownloading, setIsDownloading] = useState(false);
 
     const llm = useLlmInference({
         storageType: 'file',
@@ -37,53 +40,68 @@ export default function InsightsScreen() {
     });
 
     // Check for model file
+    const checkModel = async () => {
+        const path = FileSystem.documentDirectory + MODEL_FILE_NAME;
+        const fileInfo = await FileSystem.getInfoAsync(path);
+        if (fileInfo.exists) {
+            setModelPath(path);
+        } else {
+            setModelPath('');
+        }
+    };
+
     useEffect(() => {
-        const checkModel = async () => {
-            const path = FileSystem.documentDirectory + MODEL_FILE_NAME;
-            const fileInfo = await FileSystem.getInfoAsync(path);
-            if (fileInfo.exists) {
-                setModelPath(path);
-            }
-        };
         checkModel();
     }, []);
+
+    const downloadModel = async () => {
+        setIsDownloading(true);
+        const path = FileSystem.documentDirectory + MODEL_FILE_NAME;
+
+        try {
+            const downloadResumable = FileSystem.createDownloadResumable(
+                MODEL_URL,
+                path,
+                {},
+                (downloadProgress) => {
+                    const progress = downloadProgress.totalBytesWritten / downloadProgress.totalBytesExpectedToWrite;
+                    setDownloadProgress(progress);
+                }
+            );
+
+            const result = await downloadResumable.downloadAsync();
+            if (result) {
+                setModelPath(path);
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsDownloading(false);
+        }
+    };
 
     useFocusEffect(
         useCallback(() => {
             const loadInsights = async () => {
+                if (!modelPath) return; // Don't try to load if no model
+
                 setLoading(true);
                 try {
                     const entries = await getAllEntries();
                     const context = prepareContextForAI(entries);
 
-                    if (!modelPath) {
-                        setInsight("LLM model not found. Please download 'model.bin' to your document directory to enable AI insights.");
-                        setLoading(false);
-                        return;
-                    }
-
                     if (!llm.isLoaded) {
                         // Wait a bit or show loading
-                        // For now, if not loaded, we can't generate.
-                        // But useLlmInference should load it if path is set.
-                        // We might need to wait for isLoaded to be true.
-                        // Simple retry or message for now.
                         if (modelPath) {
                             setInsight("Initializing AI engine...");
-                            // If we return here, we won't generate. 
-                            // Ideally we wait for isLoaded.
-                            // But for this step, let's just try to generate if loaded, or wait.
                         }
                     }
 
                     if (llm.isLoaded) {
-                        const prompt = `Analyze these journal entries and provide a health insight:\n${context}`;
+                        const prompt = "You are an empathetic and analytical Health Analyst. Your goal is to help the user understand their physical and mental well-being based on their journal entries. Look for patterns in energy, sleep, and mood. Be supportive but objective. Here are the entries:\n" + context;
                         const response = await llm.generateResponse(prompt);
                         setInsight(response);
                     } else if (modelPath) {
-                        // If path exists but not loaded yet, it might load soon.
-                        // For simplicity in this iteration, we'll just say initializing.
-                        // A better approach would be a useEffect on llm.isLoaded to trigger generation.
                         setInsight("AI Engine is initializing. Please try again in a moment.");
                     }
 
@@ -95,10 +113,8 @@ export default function InsightsScreen() {
                 }
             };
 
-            // Only trigger if we haven't generated yet or if we want to refresh.
-            // For now, trigger on focus.
             loadInsights();
-        }, [modelPath, llm.isLoaded, llm]) // Added dependencies
+        }, [modelPath, llm.isLoaded, llm])
     );
 
     return (
@@ -110,7 +126,22 @@ export default function InsightsScreen() {
                 </Text>
 
                 <View style={styles.insightsContainer}>
-                    {loading ? (
+                    {!modelPath ? (
+                        <View style={styles.downloadContainer}>
+                            {isDownloading ? (
+                                <View style={styles.progressContainer}>
+                                    <ActivityIndicator size="large" color="#FFFFFF" />
+                                    <Text style={styles.progressText}>
+                                        Downloading AI Model... {Math.round(downloadProgress * 100)}%
+                                    </Text>
+                                </View>
+                            ) : (
+                                <TouchableOpacity style={styles.downloadButton} onPress={downloadModel}>
+                                    <Text style={styles.downloadButtonText}>Download AI Model (1.3GB)</Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    ) : loading ? (
                         <ActivityIndicator size="large" color="#FFFFFF" />
                     ) : (
                         <Text style={styles.insightText}>{insight}</Text>
@@ -158,5 +189,31 @@ const styles = StyleSheet.create({
         color: COLORS.text,
         textAlign: 'center',
         lineHeight: 26,
+    },
+    downloadContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    downloadButton: {
+        backgroundColor: '#333',
+        paddingHorizontal: 20,
+        paddingVertical: 12,
+        borderRadius: 8,
+        borderWidth: 1,
+        borderColor: '#555',
+    },
+    downloadButtonText: {
+        color: '#FFF',
+        fontSize: 16,
+        fontFamily: 'Alegreya_400Regular',
+    },
+    progressContainer: {
+        alignItems: 'center',
+    },
+    progressText: {
+        color: '#FFF',
+        marginTop: 10,
+        fontSize: 16,
+        fontFamily: 'Alegreya_400Regular',
     },
 });
