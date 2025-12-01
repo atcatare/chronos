@@ -1,11 +1,13 @@
 import React from 'react';
 import { View, ActivityIndicator, Image } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts, Alegreya_400Regular } from '@expo-google-fonts/alegreya';
 
 import HomeScreen from './src/screens/HomeScreen';
+import InsightsScreen from './src/screens/InsightsScreen';
 import HistoryScreen from './src/screens/HistoryScreen';
 import { COLORS } from './src/constants/colors';
 
@@ -53,6 +55,20 @@ export default function App() {
               <Image
                 source={require('./assets/journal_icon.png')}
                 style={{ width: 40, height: 40, opacity: focused ? 1 : 0.5 }}
+              />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="Insights"
+          component={InsightsScreen}
+          options={{
+            tabBarIcon: ({ focused }) => (
+              <MaterialCommunityIcons
+                name="brain"
+                size={40}
+                color={focused ? '#FFFFFF' : '#888888'}
+                style={{ opacity: focused ? 1 : 0.5 }}
               />
             ),
           }}
